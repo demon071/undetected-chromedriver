@@ -2,7 +2,10 @@
 # this module is part of undetected_chromedriver
 
 from distutils.version import LooseVersion
+from webdriver_manager.core.utils import ChromeType, get_browser_version_from_os
+from packaging import version
 import io
+import json
 import logging
 import os
 import pathlib
@@ -27,17 +30,21 @@ class Patcher(object):
     url_repo = "https://chromedriver.storage.googleapis.com"
     zip_name = "chromedriver_%s.zip"
     exe_name = "chromedriver%s"
+    platform_name = '%s'
 
     platform = sys.platform
     if platform.endswith("win32"):
         zip_name %= "win32"
         exe_name %= ".exe"
+        platform_name %= "win32"
     if platform.endswith(("linux", "linux2")):
         zip_name %= "linux64"
         exe_name %= ""
+        platform_name %= "linux64"
     if platform.endswith("darwin"):
         zip_name %= "mac64"
         exe_name %= ""
+        platform_name %= "mac-x64"
 
     if platform.endswith("win32"):
         d = "~/appdata/roaming/undetected_chromedriver"
@@ -69,7 +76,7 @@ class Patcher(object):
         """
         self.force = force
         self._custom_exe_path = False
-        prefix = "undetected"
+        prefix = get_browser_version_from_os(ChromeType.GOOGLE)
         self.user_multi_procs = user_multi_procs
 
         if not os.path.exists(self.data_path):
@@ -119,6 +126,10 @@ class Patcher(object):
         with Lock():
             files = list(p.rglob("*chromedriver*?"))
             for file in files:
+                if not os.path.isfile(file):
+                    continue
+                if get_browser_version_from_os(ChromeType.GOOGLE) not in str(file):
+                    continue
                 if self.is_binary_patched(file):
                     self.executable_path = str(file)
                     return True
@@ -217,6 +228,8 @@ class Patcher(object):
         path = "/latest_release"
         if self.version_main:
             path += f"_{self.version_main}"
+            if version.parse(self.version_main) > version.parse('113'):
+                return LooseVersion(get_browser_version_from_os(ChromeType.GOOGLE))
         path = path.upper()
         logger.debug("getting release number from %s" % path)
         return LooseVersion(urlopen(self.url_repo + path).read().decode())
@@ -235,6 +248,15 @@ class Patcher(object):
         :return: path to downloaded file
         """
         u = "%s/%s/%s" % (self.url_repo, self.version_full.vstring, self.zip_name)
+        if version.parse(self.version_full.vstring) > version.parse('113'):
+            data  =  json.loads(urlopen('https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json').read().decode())
+            versions = data["versions"]
+            for v in versions:
+                if v["version"] == self.version_full.vstring:
+                    downloads = v["downloads"]["chromedriver"]
+                    for d in downloads:
+                        if d["platform"] == self.platform_name:
+                            return urlretrieve(d["url"])[0]
         logger.debug("downloading from %s" % u)
         # return urlretrieve(u, filename=self.data_path)[0]
         return urlretrieve(u)[0]
@@ -253,10 +275,14 @@ class Patcher(object):
 
         os.makedirs(self.zip_path, mode=0o755, exist_ok=True)
         with zipfile.ZipFile(fp, mode="r") as zf:
-            zf.extract(self.exe_name, self.zip_path)
+            for file_info in zf.infolist():
+                if self.exe_name in file_info.filename and 'LICENSE' not in file_info.filename:
+                    zf.extract(file_info, self.zip_path)
+                    self.exe_name = file_info.filename
+            # zf.extract(self.exe_name, self.zip_path)
         os.rename(os.path.join(self.zip_path, self.exe_name), self.executable_path)
         os.remove(fp)
-        os.rmdir(self.zip_path)
+        shutil.rmtree(self.zip_path)
         os.chmod(self.executable_path, 0o755)
         return self.executable_path
 

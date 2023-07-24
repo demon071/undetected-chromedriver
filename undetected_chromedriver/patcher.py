@@ -2,7 +2,7 @@
 # this module is part of undetected_chromedriver
 
 from distutils.version import LooseVersion
-from webdriver_manager.core.utils import ChromeType, get_browser_version_from_os
+from webdriver_manager.core.os_manager import OperationSystemManager, ChromeType
 from packaging import version
 import io
 import json
@@ -76,7 +76,7 @@ class Patcher(object):
         """
         self.force = force
         self._custom_exe_path = False
-        prefix = get_browser_version_from_os(ChromeType.GOOGLE)
+        prefix = OperationSystemManager().get_browser_version_from_os(ChromeType.GOOGLE)
         self.user_multi_procs = user_multi_procs
 
         if not os.path.exists(self.data_path):
@@ -128,7 +128,7 @@ class Patcher(object):
             for file in files:
                 if not os.path.isfile(file):
                     continue
-                if get_browser_version_from_os(ChromeType.GOOGLE) not in str(file):
+                if OperationSystemManager().get_browser_version_from_os(ChromeType.GOOGLE) not in str(file):
                     continue
                 if self.is_binary_patched(file):
                     self.executable_path = str(file)
@@ -229,7 +229,7 @@ class Patcher(object):
         if self.version_main:
             path += f"_{self.version_main}"
             if version.parse(self.version_main) > version.parse('113'):
-                return LooseVersion(get_browser_version_from_os(ChromeType.GOOGLE))
+                return LooseVersion(OperationSystemManager().get_browser_version_from_os(ChromeType.GOOGLE))
         path = path.upper()
         logger.debug("getting release number from %s" % path)
         return LooseVersion(urlopen(self.url_repo + path).read().decode())
@@ -248,15 +248,23 @@ class Patcher(object):
         :return: path to downloaded file
         """
         u = "%s/%s/%s" % (self.url_repo, self.version_full.vstring, self.zip_name)
-        if version.parse(self.version_full.vstring) > version.parse('113'):
+        if version.parse(self.version_full.vstring) >= version.parse('115'):
             data  =  json.loads(urlopen('https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json').read().decode())
-            versions = data["versions"]
+            versions = [version for version in data['versions'] if str(self.version_main) in version['version'] and 'chromedriver' in version['downloads']]
+            max_version = versions[0]
             for v in versions:
                 if v["version"] == self.version_full.vstring:
                     downloads = v["downloads"]["chromedriver"]
                     for d in downloads:
                         if d["platform"] == self.platform_name:
                             return urlretrieve(d["url"])[0]
+                elif version.parse(v['version']) < version.parse(self.version_full.vstring) and version.parse(v['version']) > version.parse(max_version['version']):
+                    max_version = v
+            downloads = max_version["downloads"]["chromedriver"]
+            for d in downloads:
+                if d["platform"] == self.platform_name:
+                    return urlretrieve(d["url"])[0]
+                            
         logger.debug("downloading from %s" % u)
         # return urlretrieve(u, filename=self.data_path)[0]
         return urlretrieve(u)[0]

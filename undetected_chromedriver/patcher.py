@@ -228,7 +228,7 @@ class Patcher(object):
         path = "/latest_release"
         if self.version_main:
             path += f"_{self.version_main}"
-            if version.parse(self.version_main) > version.parse('113'):
+            if version.parse(self.version_main) >= version.parse('115'):
                 return LooseVersion(OperationSystemManager().get_browser_version_from_os(ChromeType.GOOGLE))
         path = path.upper()
         logger.debug("getting release number from %s" % path)
